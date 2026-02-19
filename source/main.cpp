@@ -34,6 +34,7 @@ int main()
 		float deltaTime = GetFrameTime();
 
 		gameMode.HandleInput();
+		ClearBackground(RAYWHITE); // added this to clear frames 
 		gameMode.Update(deltaTime);
 
 		gameMode.Draw();
