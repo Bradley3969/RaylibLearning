@@ -1,115 +1,168 @@
+// Player.cpp - UPDATED VERSION
 #include "Player.h"
 
+// CONSTRUCTOR
 Player::Player()
-	: Actor() // call base class constructor
-	, speed(200.0f) // set default speed
-	, healthComp() // default construct health component
+    : Actor()                    // First, initialize Actor base class
+    , healthComp()                // Then initialize HealthComponent
+    , movement(200.0f)            // NEW: Initialize MovementComponent with speed 200
 {
-	actorName = "Player"; // set actor name for debugging
-	healthComp.SetMaxHealth(150.0f); // set player max health to 150
-	healthComp.ResetHealth(); // start with full health
-	TraceLog(LOG_INFO, "player created with", healthComp.GetMaxHealth(), "max health.");
+    actorName = "Player";
+
+    // Customize player health (tougher than enemies)
+    healthComp.SetMaxHealth(150.0f);
+    healthComp.ResetHealth();
+
+    TraceLog(LOG_INFO, "Player created with 150 health and 200 speed");
 }
 
-Player::~Player() /// destructor FOR LA-payer el- RAII
-{
-	TraceLog(LOG_INFO, "player destroyed.");
+// DESTRUCTOR
+Player::~Player() {
+    TraceLog(LOG_INFO, "Player destroyed");
 }
 
-void Player::BeginPlay()
-{
-	// intitalize player specifics
-	position = { 400, 300 };  //currently starting in center screen
+// BEGIN PLAY - Called once when player enters game
+void Player::BeginPlay() {
+    position = { 400, 300 };  // Start in the middle
+    TraceLog(LOG_INFO, "Player BeginPlay at (400, 300)");
 }
 
-void Player::Tick(float deltaTime) // called every frame to update player logic
-{
-	//handles player movement
-	if (IsKeyDown(KEY_RIGHT)) position.x += speed * deltaTime;
-	if (IsKeyDown(KEY_LEFT)) position.x -= speed * deltaTime;
-	if (IsKeyDown(KEY_DOWN)) position.y += speed * deltaTime;
-	if (IsKeyDown(KEY_UP)) position.y -= speed * deltaTime;
+// TICK - Called every frame (heart of player logic)
+void Player::Tick(float deltaTime) {
+    // --------------------------------------------------------------------
+    // PART 1: GET INPUT DIRECTION
+    // --------------------------------------------------------------------
+    // We read keyboard and build a direction vector
+    // (1,0) = right, (-1,0) = left, (0,1) = down, (0,-1) = up
+    // Combining gives diagonals: (1,-1) = up-right
 
-	// keep player on screen
-	if (position.x < 0) position.x = 0;
-	if (position.x > 800) position.x = 800;
-	if (position.y < 0) position.y = 0;
-	if (position.y > 600) position.y = 600;
+    Vector2 direction = { 0, 0 };
 
+    if (IsKeyDown(KEY_RIGHT)) direction.x += 1.0f;
+    if (IsKeyDown(KEY_LEFT)) direction.x -= 1.0f;
+    if (IsKeyDown(KEY_DOWN)) direction.y += 1.0f;
+    if (IsKeyDown(KEY_UP)) direction.y -= 1.0f;
 
+    // --------------------------------------------------------------------
+    // PART 2: LET MOVEMENT COMPONENT DO THE MATH
+    // --------------------------------------------------------------------
+    // This is DELEGATION - we're asking movement to handle the hard part!
+    // MovementComponent will:
+    // - Normalize direction (prevent faster diagonal)
+    // - Apply speed
+    // - Use deltaTime for frame-independent movement
+    // - Return the new position
 
-	/////////////////////////////////////////////
-	//testing if player can take damage properly
+    position = movement.MoveInDirection(direction, deltaTime, position);
 
-	if (IsKeyPressed(KEY_H))
-	{
-		TakeDamage(20.0f); // take 20 damage when H is pressed
-		TraceLog(LOG_INFO, "Player took 20 damage.");
-	}
+    // --------------------------------------------------------------------
+    // PART 3: KEEP PLAYER ON SCREEN
+    // --------------------------------------------------------------------
+    // MovementComponent doesn't know about screen boundaries,
+    // so we still need to handle this!
 
+    if (position.x < 0) position.x = 0;
+    if (position.x > 800) position.x = 800;
+    if (position.y < 0) position.y = 0;
+    if (position.y > 600) position.y = 600;
 
-	// heal player testing
-	if (IsKeyPressed(KEY_R))
-	{
-		healthComp.Heal(20.f);
-		TraceLog(LOG_INFO, "Player healed for 20 health.");
-	}
+    // --------------------------------------------------------------------
+    // PART 4: UPDATE COMPONENTS
+    // --------------------------------------------------------------------
+    // Both components need to update every frame
+    // (HealthComponent for invincibility timers,
+    //  MovementComponent for boost timers)
+
+    healthComp.Update(deltaTime);
+    movement.Update(deltaTime);
+
+    // --------------------------------------------------------------------
+    // PART 5: TEST CONTROLS
+    // --------------------------------------------------------------------
+    // These let us test our components!
+
+    if (IsKeyPressed(KEY_H)) {
+        TakeDamage(20.0f);  // Test taking damage
+    }
+
+    if (IsKeyPressed(KEY_R)) {
+        healthComp.Heal(20.0f);  // Test healing
+        TraceLog(LOG_INFO, "Player healed");
+    }
+
+    if (IsKeyPressed(KEY_B)) {
+        // NEW: Test speed boost! Double speed for 3 seconds
+        movement.TemporaryBoost(2.0f, 3.0f);
+        TraceLog(LOG_INFO, "Speed boost activated!");
+    }
 }
 
-/////////////////////////////
-void Player::TakeDamage(float amount) // public method to apply damage to player, calls health component's TakeDamage
-{
-	bool died = healthComp.TakeDamage(amount); // ask HealthComponent to process damage
-	
-	if (died)
-	{
-		// FIX LATER add animation or sound effect for death
-		TraceLog(LOG_WARNING, "player died");
-		// for now just reset health to keep testing
-		// add game over or respann logic later
-	}
+// TAKE DAMAGE - Called when player gets hit
+void Player::TakeDamage(float amount) {
+    bool died = healthComp.TakeDamage(amount);
+
+    if (died) {
+        TraceLog(LOG_WARNING, "Player died! Respawning...");
+        healthComp.ResetHealth();  // Simple respawn
+
+        // Could also trigger death animation, game over, etc.
+    }
 }
 
-void Player::Draw()
-{
-	// only draw if alive
-	if (healthComp.IsDead())
-	{
-		// draw a gray x when player is dead 
-		DrawLine(position.x - 15, position.y - 15, position.x + 15, position.y + 15, DARKGRAY); // diagonal line 1
-		DrawLine(position.x - 15, position.y + 15, position.x + 15, position.y - 15, DARKGRAY); // diagonal line 2
-		return; // skip drawing the player sprite if dead
-	}
+// DRAW - Called every frame to render player
+void Player::Draw() {
+    // Don't draw if dead
+    if (healthComp.IsDead()) {
+        // Draw tombstone X
+        DrawLine(position.x - 15, position.y - 15,
+            position.x + 15, position.y + 15, DARKGRAY);
+        DrawLine(position.x + 15, position.y - 15,
+            position.x - 15, position.y + 15, DARKGRAY);
+        return;
+    }
 
-	// Draw player as a circle ( color is based around healh)
-	Color playerColor;
-	float healthPercent = healthComp.GetHealthPercentage();
+    // --------------------------------------------------------------------
+    // Choose color based on health percentage
+    // --------------------------------------------------------------------
+    Color playerColor;
+    float healthPercent = healthComp.GetHealthPercentage();
 
-	if(healthPercent > 0.7f)
-	{
-		playerColor = BLUE; // health high color blue
-	}
-	else if (healthPercent > 0.3f)
-	{
-		playerColor = YELLOW; // health medium color yellow
-	}
-	else
-	{
-		playerColor = RED; // health low color red
-	}
+    if (healthPercent > 0.7f) {
+        playerColor = BLUE;        // Healthy
+    }
+    else if (healthPercent > 0.3f) {
+        playerColor = ORANGE;       // Wounded
+    }
+    else {
+        playerColor = RED;          // Critical
+    }
 
-	//Draw player 
-	DrawCircle(position.x, position.y, 20, playerColor);
+    // --------------------------------------------------------------------
+    // Draw the player
+    // --------------------------------------------------------------------
+    DrawCircle(position.x, position.y, 20, playerColor);
 
-	// draw players name above them
-	DrawText(actorName.c_str(), position.x - 30, position.y - 40, 10, DARKGRAY);
+    // --------------------------------------------------------------------
+    // Draw movement direction indicator (NEW!)
+    // --------------------------------------------------------------------
+    if (movement.IsMoving()) {
+        Vector2 dir = movement.GetMoveDirection();
+        // Draw a line showing where we're going
+        DrawLine(position.x, position.y,
+            position.x + dir.x * 30, position.y + dir.y * 30, WHITE);
+    }
 
-	// ask HealthComponent , nicely, to please draw the health bar above the player
-	healthComp.DrawDebug(position); // pass player position so health bar can be drawn above player
+    // --------------------------------------------------------------------
+    // Draw boost indicator (NEW!)
+    // --------------------------------------------------------------------
+    if (movement.IsBoosted()) {
+        // Yellow circle when boosted
+        DrawCircleLines(position.x, position.y, 25, YELLOW);
+    }
 
-	//draw invincibility effect if player is invincible
-	if (healthComp.IsInvincible())
-	{
-		DrawCircleLines(position.x, position.y, 25, GOLD); // draw a gold circle around player when invincible
-	}
+    // --------------------------------------------------------------------
+    // Draw UI elements
+    // --------------------------------------------------------------------
+    DrawText(actorName.c_str(), position.x - 30, position.y - 40, 10, DARKGRAY);
+    healthComp.DrawDebug(position);
 }

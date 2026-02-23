@@ -11,6 +11,7 @@ public:
 	, currentHealth(maxHealth) // starts with full health
 	, isDead(false) // start alive
 	, invincibleTime(0.0f) // not invincible at start
+	
 	{
 	}
 
