@@ -2,97 +2,115 @@
 #include <cmath>
 #include <cstdlib> // for random number functions
 
-
+// CONSTRUCTOR
 Enemy::Enemy()
-	:Actor() // call base class constructor
+	: Actor() // call base class constructor
 	, speed(50.0f) // set default speed for enemy movement
 	, healthComp() // initialize health component with default values
+	, combatComp() // NEW: initialize combat component
 	, target(nullptr) // start with no target via nullptr
 {
 	actorName = "Enemy"; // set a name for debugging or identification purposes
 
 	healthComp.SetMaxHealth(50.0f); // set max health for the enemy
-
 	healthComp.ResetHealth(); // start with full health
 
-	TraceLog(LOG_INFO, "Enemy created with, max health:", healthComp.GetMaxHealth(), "and speed:", speed);
+	// NEW: Set up combat component for enemy
+	combatComp.Initialize(this); // Tell combat component who owns it
+	combatComp.SetDamageAmount(10.0f); // Enemy deals 10 damage per hit
+	combatComp.SetCanDamagePlayer(true); // Enemy CAN hurt the player
+	combatComp.SetCanDamageEnemy(false); // Enemy should NOT hurt other enemies
+	combatComp.SetAttackCooldown(1.0f); // Can attack once per second
+	combatComp.SetKnockbackForce(50.0f); // Push player back when hit
+
+	TraceLog(LOG_INFO, TextFormat("Enemy created with max health: %.1f and speed: %.1f",
+		healthComp.GetMaxHealth(), speed));
 }
 
+// DESTRUCTOR
 Enemy::~Enemy() // destructor, currently no special cleanup needed
 {
 	TraceLog(LOG_INFO, "Enemy destroyed.");
 }
 
+// BEGIN PLAY - Called once when enemy enters game
 void Enemy::BeginPlay() {
 	// spawn at random position
-	position.x = static_cast<float>(GetRandomValue(50, 750)); // random x between 50 and 750 to avoid spawning too close to edges
-	position.y = static_cast<float>(GetRandomValue(50, 550)); // random y between 50 and 550 for same reason
-	TraceLog(LOG_INFO, TextFormat("Enemy spawned at position (", position.x, ",", position.y, ")"));
+	position.x = static_cast<float>(GetRandomValue(50, 750)); // random x between 50 and 750
+	position.y = static_cast<float>(GetRandomValue(50, 550)); // random y between 50 and 550
+
+	TraceLog(LOG_INFO, TextFormat("Enemy spawned at position (%.1f, %.1f)", position.x, position.y));
 }
 
-void Enemy::Tick(float deltaTime) // called every frame to update enemy behavior
+// TICK - Called every frame
+void Enemy::Tick(float deltaTime)
 {
-	// update healthcomponent counts down invincibility timer if active
-	healthComp.Update(deltaTime);
+	// --------------------------------------------------------------------
+	// PART 1: UPDATE COMPONENTS
+	// --------------------------------------------------------------------
+	healthComp.Update(deltaTime); // counts down invincibility timer
+	combatComp.Update(deltaTime); // NEW: updates combat cooldown timer
 
-	// if enemy is dead dont do anything
+	// if enemy is dead, don't do anything
 	if (healthComp.IsDead())
 	{
-		return; // return dead enemy does not update
+		return; // dead enemy does not update
 	}
-	// if we have a target , move towards it
+
+	// --------------------------------------------------------------------
+	// PART 2: CHECK FOR COLLISION WITH PLAYER (COMBAT!)
+	// --------------------------------------------------------------------
+	// If we have a target AND we're close enough to attack
 	if (target != nullptr)
 	{
-		// get target position
+		// Calculate distance to target
 		Vector2 targetPos = target->GetPosition();
+		float dx = targetPos.x - position.x;
+		float dy = targetPos.y - position.y;
+		float distance = std::sqrt(dx * dx + dy * dy);
 
-		// calculate direction to target
-		// vector math..... OH NO NOT THE MATHS THIS IS SUPPOSED TO BE FUN :(
-
-		float dx = targetPos.x - position.x; // difference in x between target and enemy
-		float dy = targetPos.y - position.y; // difference in y between target and enemy
-
-		// distance to target calculation using Pythagorean theorem oh noo
-		//Pythagorean theorem: distance = sqrt(dx^2 + dy^2) ewwwwwwwwwww brain cells != functional
-
-		float distance = std::sqrt(dx * dx + dy * dy); // calculate distance to target
-		if (distance > 5.0f)
+		// NEW: If close enough to attack, use combat component!
+		if (distance < 30.0f)  // Attack range
 		{
-			float dirX = dx / distance; // normalize direction x component
-			float dirY = dy / distance; // normalize direction y component
-
-			position.x += dirX * speed * deltaTime; // move enemy towards target in x direction
-			position.y += dirY * speed * deltaTime; // move enemy towards target in y direction
-
+			// Let combat component handle the attack
+			// It will check cooldown, deal damage, apply knockback
+			combatComp.OnCollide(target);
 		}
-		if (distance <= 5.0f)
+
+		// --------------------------------------------------------------------
+		// PART 3: MOVE TOWARD TARGET (if not already attacking)
+		// --------------------------------------------------------------------
+		if (distance > 30.0f)  // Too far to attack, move closer
 		{
-			// add attack logic later
-			// for now just log enemy is close to target
-			TraceLog(LOG_INFO, "Enemy is close to target, could attack now.");
+			// Normalize direction
+			float dirX = dx / distance;
+			float dirY = dy / distance;
+
+			// Move toward target
+			position.x += dirX * speed * deltaTime;
+			position.y += dirY * speed * deltaTime;
 		}
 	}
 	else
 	{
-		// no target, maybe wander around or do nothing for now
-		// for now just log no target
+		// No target - maybe wander around later
 		TraceLog(LOG_INFO, "Enemy has no target.");
 	}
 }
 
-void Enemy::Draw() // called every frame to render the enemy
+// DRAW - Called every frame
+void Enemy::Draw()
 {
-	// dont draw if dead
+	// don't draw if dead
 	if (healthComp.IsDead())
 	{
-		// draw a tombstone x istead
-		DrawLine(position.x - 15, position.y - 15, position.x + 15, position.y + 15, DARKGRAY); // draw x for dead enemy
-		DrawLine(position.x - 15, position.y + 15, position.x + 15, position.y - 15, DARKGRAY);// draw x for dead enemy
-		return; // return dead enemy does not draw
+		// draw a tombstone X instead
+		DrawLine(position.x - 15, position.y - 15, position.x + 15, position.y + 15, DARKGRAY);
+		DrawLine(position.x - 15, position.y + 15, position.x + 15, position.y - 15, DARKGRAY);
+		return;
 	}
 
 	// enemy color based on health percentage
-
 	Color enemyColor;
 	float healthPercent = healthComp.GetHealthPercentage();
 
@@ -109,50 +127,52 @@ void Enemy::Draw() // called every frame to render the enemy
 		enemyColor = RED; // critical enemy is red
 	}
 
-	// draw enemy as a square for simplicity
-
+	// draw enemy as a square
 	DrawRectangle(position.x - 15, position.y - 15, 30, 30, enemyColor);
 
 	// draw enemy name above them
 	DrawText(actorName.c_str(), position.x - 20, position.y - 30, 10, DARKGRAY);
 
-	// ask HealthComponent to draw health bar above enemy
+	// ask HealthComponent to draw health bar
 	healthComp.DrawDebug(position);
 
 	// if invincible, draw a white outline
 	if (healthComp.IsInvincible())
 	{
-		DrawRectangle(position.x - 20, position.y - 20, 40, 40, Fade(WHITE, 0.5f)); // draw semi-transparent white outline
+		DrawRectangleLines(position.x - 17, position.y - 17, 34, 34, WHITE);
 	}
 
-	// for debugging, draw line to target if we have one
+	// NEW: Show attack range for debugging
+	if (target != nullptr)
+	{
+		// Draw attack range circle
+		DrawCircleLines(position.x, position.y, 30.0f, Fade(ORANGE, 0.3f));
+	}
+
+	// for debugging, draw line to target
 	if (target != nullptr)
 	{
 		Vector2 targetPos = target->GetPosition();
-		DrawLine(position.x, position.y, targetPos.x, targetPos.y, LIGHTGRAY); // draw line to target
+		DrawLine(position.x, position.y, targetPos.x, targetPos.y, LIGHTGRAY);
 	}
 }
 
-// TAKE DAMAGE  METHOD TO APPLY DAMAGE TO THE ENEMY
-
+// TAKE DAMAGE - Apply damage to enemy
 void Enemy::TakeDamage(float amount)
 {
 	// call health component to apply damage
 	bool died = healthComp.TakeDamage(amount);
 
-	// if  damage kills enemy
 	if (died)
 	{
-		// log death
-		TraceLog(LOG_INFO, TextFormat("Enemy took", amount, "damage and has", healthComp.GetCurrentHealth(), "health left."));
-
+		TraceLog(LOG_INFO, "Enemy died!");
 	}
 	else
 	{
-		// if not dead, log remaining health
-		TraceLog(LOG_INFO, TextFormat("Enemy took", amount, "damage and has", healthComp.GetCurrentHealth(), "health left."));
+		TraceLog(LOG_INFO, TextFormat("Enemy took %.1f damage, %.1f health remaining",
+			amount, healthComp.GetCurrentHealth()));
 
-		// prevent kills in one frame by setting invincibility for a short duration after taking damage
-		healthComp.SetInvincibility(0.5f); // 0.5 seconds of invincibility after taking damage
+		// brief invincibility after being hit
+		healthComp.SetInvincibility(0.5f);
 	}
 }
